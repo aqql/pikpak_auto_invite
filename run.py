@@ -12,7 +12,6 @@ import threading
 import json
 import recognize
 import requests
-from rich import await send_log_to_web_json
 
 DEBUG_MODE = False # Debug模式，是否打印请求返回信息
 
