@@ -1,0 +1,22 @@
+<!-- log_websocket_client.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Log Viewer</title>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            var logElement = document.getElementById('log');
+            var connection = new WebSocket('ws://localhost:6789');
+
+            connection.onmessage = function(event) {
+                var message = JSON.parse(event.data);
+                logElement.innerHTML += message.log + '<br>';
+            };
+        });
+    </script>
+</head>
+<body>
+    <pre id="log"></pre>
+</body>
+</html>
