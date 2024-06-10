@@ -15,6 +15,7 @@ import requests
 from rich import await send_log_to_web_json
 
 DEBUG_MODE = False # Debug模式，是否打印请求返回信息
+
 # 存储WebSocket连接的客户端
 connected_clients = set()
 
