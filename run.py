@@ -5,13 +5,48 @@ import re
 import time
 import asyncio
 import aiohttp
+import websockets
 import uuid
 import image
+import threading
+import json
 import recognize
 import requests
-from rich import print_json
+from rich import await send_log_to_web_json
 
 DEBUG_MODE = False # Debug模式，是否打印请求返回信息
+# 存储WebSocket连接的客户端
+connected_clients = set()
+
+# WebSocket服务器端点
+async def log_handler(websocket, path):
+    connected_clients.add(websocket)
+    try:
+        async for message in websocket:
+            await send_log_to_web(f"Received message from client: {message}")
+    finally:
+        connected_clients.remove(websocket)
+
+# 广播日志消息到所有连接的客户端
+async def broadcast_log(log_message):
+    for client in connected_clients:
+        if client.open:
+            await client.send(json.dumps({'log': log_message}))
+
+# 启动WebSocket服务器的函数
+def start_websocket_server():
+    start_server = websockets.serve(log_handler, "localhost", 6789)
+    asyncio.get_event_loop().run_until_complete(start_server)
+    asyncio.get_event_loop().run_forever()
+
+# 在新线程中运行WebSocket服务器
+websocket_server_thread = threading.Thread(target=start_websocket_server)
+websocket_server_thread.start()
+
+async def send_log_to_web(log_message):
+    uri = "ws://localhost:6789"  # WebSocket服务器的地址
+    async with websockets.connect(uri) as websocket:
+        await websocket.send(log_message)
  # 代理，如果多次出现IP问题可尝试将自己所用的魔法设置为代理。例如：使用clash则设置为 'http://127.0.0.1:7890'
 def get_proxy():
     global PROXY
@@ -19,7 +54,7 @@ def get_proxy():
     if PROXY is None:
         PROXY = requests.get("https://api-usa.linux-do-proxy.com/get/").json().get("proxy")
         PROXY = f"http://{PROXY}"
-        print(f"{PROXY}")
+        await send_log_to_web(f"{PROXY}")
 
 # 滑块数据加密
 def r(e, t):
@@ -118,7 +153,7 @@ async def get_mail():
         async with session.post(url, json=json_data, ssl=False) as response:
             response_data = await response.json()
             mail = response_data['email']
-        print(f'获取邮箱:{mail}')
+        await send_log_to_web(f'获取邮箱:{mail}')
         return mail
 
 
@@ -133,12 +168,12 @@ async def get_code(mail, max_retries=10, delay=1):
                 if html:
                     text = (html[0])['body_text']
                     code = re.search('\\d{6}', text).group()
-                    print(f'获取邮箱验证码:{code}')
+                    await send_log_to_web(f'获取邮箱验证码:{code}')
                     return code
                 else:
                     time.sleep(delay)
                     retries += 1
-    print("获取邮箱邮件内容失败，未收到邮件...")
+    await send_log_to_web("获取邮箱邮件内容失败，未收到邮件...")
     return None
 
 
@@ -187,11 +222,11 @@ async def init(xid, mail):
             response_data = await response.json()
             if 'url' in response_data:
                 if DEBUG_MODE:
-                    print('初始安全验证:')
-                    print_json(json.dumps(response_data, indent=4))
+                    await send_log_to_web('初始安全验证:')
+                    await send_log_to_web_json(json.dumps(response_data, indent=4))
                 return response_data
             else:
-                raise print('IP频繁,请更换IP或者稍后再试!!!\n', response_data['error_description'])
+                raise await send_log_to_web('IP频繁,请更换IP或者稍后再试!!!\n', response_data['error_description'])
 
 
 async def get_image(xid):
@@ -207,8 +242,8 @@ async def get_image(xid):
             pid = imgs_json['pid']
             traceid = imgs_json['traceid']
             if DEBUG_MODE:
-                print('滑块ID:')
-                print_json(json.dumps(pid, indent=4))
+                await send_log_to_web('滑块ID:')
+                await send_log_to_web_json(json.dumps(pid, indent=4))
             params = {
                 'deviceid': xid,
                 'pid': pid,
@@ -257,8 +292,8 @@ async def get_new_token(result, xid, captcha):
                 f"=pzzlSlider&result=0&data={pid}&traceid={traceid}", ssl=False, proxy=PROXY) as response2:
             response_data = await response2.json()
             if DEBUG_MODE:
-                print('获取验证TOKEN:')
-                print_json(json.dumps(response_data, indent=4))
+                await send_log_to_web('获取验证TOKEN:')
+                await send_log_to_web_json(json.dumps(response_data, indent=4))
             return response_data
 
 
@@ -305,8 +340,8 @@ async def verification(captcha_token, xid, mail):
         async with session.post(url, json=body, headers=headers, ssl=False, proxy=PROXY) as response:
             response_data = await response.json()
             if DEBUG_MODE:
-                print('发送验证码:')
-                print_json(json.dumps(response_data, indent=4))
+                await send_log_to_web('发送验证码:')
+                await send_log_to_web_json(json.dumps(response_data, indent=4))
             return response_data
 
 
@@ -350,8 +385,8 @@ async def verify(xid, verification_id, code):
         async with session.post(url, json=body, headers=headers, ssl=False, proxy=PROXY) as response:
             response_data = await response.json()
             if DEBUG_MODE:
-                print('验证码验证结果:')
-                print_json(json.dumps(response_data, indent=4))
+                await send_log_to_web('验证码验证结果:')
+                await send_log_to_web_json(json.dumps(response_data, indent=4))
             return response_data
 
 
@@ -397,8 +432,8 @@ async def signup(xid, mail, code, verification_token):
         async with session.post(url, json=body, headers=headers, ssl=False, proxy=PROXY) as response:
             response_data = await response.json()
             if DEBUG_MODE:
-                print('注册结果:')
-                print_json(json.dumps(response_data, indent=4))
+                await send_log_to_web('注册结果:')
+                await send_log_to_web_json(json.dumps(response_data, indent=4))
             return response_data
 
 
@@ -450,8 +485,8 @@ async def init1(xid, access_token, sub, sign, t):
         async with session.post(url, json=body, headers=headers, ssl=False, proxy=PROXY) as response:
             response_data = await response.json()
             if DEBUG_MODE:
-                print('二次安全验证:')
-                print_json(json.dumps(response_data, indent=4))
+                await send_log_to_web('二次安全验证:')
+                await send_log_to_web_json(json.dumps(response_data, indent=4))
             return response_data
 
 
@@ -489,8 +524,8 @@ async def invite(access_token, captcha_token, xid):
         async with session.post(url, json=body, headers=headers, ssl=False, proxy=PROXY) as response:
             response_data = await response.json()
             if DEBUG_MODE:
-                print('获取邀请:')
-                print_json(json.dumps(response_data, indent=4))
+                await send_log_to_web('获取邀请:')
+                await send_log_to_web_json(json.dumps(response_data, indent=4))
             return response_data
 
 
@@ -542,8 +577,8 @@ async def init2(xid, access_token, sub, sign, t):
         async with session.post(url, json=body, headers=headers, ssl=False, proxy=PROXY) as response:
             response_data = await response.json()
             if DEBUG_MODE:
-                print('三次安全验证:')
-                print_json(json.dumps(response_data, indent=4))
+                await send_log_to_web('三次安全验证:')
+                await send_log_to_web_json(json.dumps(response_data, indent=4))
             return response_data
 
 
@@ -583,36 +618,36 @@ async def activation_code(access_token, captcha, xid, in_code):
                 async with session.post(url, json=body, headers=headers, ssl=False, proxy=PROXY) as response:
                     response_data = await response.json()
                     if DEBUG_MODE:
-                        print('填写邀请:')
-                        print_json(json.dumps(response_data, indent=4))
+                        await send_log_to_web('填写邀请:')
+                        await send_log_to_web_json(json.dumps(response_data, indent=4))
                     return response_data
         except Exception as error:
-            print('Error:', error)
+            await send_log_to_web('Error:', error)
             raise error
 
 
 async def main():
-    # print('本脚本是固定滑动次数,多次碰撞验证版！！')
-    # print('成功与否全凭运气, 可能几次就成功, 也可能几十次都不成功, 请自行测试, 祝使用愉快!')
+    # await send_log_to_web('本脚本是固定滑动次数,多次碰撞验证版！！')
+    # await send_log_to_web('成功与否全凭运气, 可能几次就成功, 也可能几十次都不成功, 请自行测试, 祝使用愉快!')
     try:
         get_proxy()
         incode = os.getenv('INVITE_CODE')
         if not incode:
-            print("环境变量 INVITE_CODE 未设置，请设置邀请码。")
+            await send_log_to_web("环境变量 INVITE_CODE 未设置，请设置邀请码。")
             return
         start_time = time.time()
         xid = str(uuid.uuid4()).replace("-", "")
         mail = await get_mail()
         Init = await init(xid, mail)
         while True:
-            print('验证滑块中...')
+            await send_log_to_web('验证滑块中...')
             img_info = await get_image(xid)
             # time.sleep(random.randint(15, 20))
             if img_info['response_data']['result'] == 'accept':
-                print('验证通过!!!')
+                await send_log_to_web('验证通过!!!')
                 break
             else:
-                print('验证失败, 重新验证滑块中...')
+                await send_log_to_web('验证失败, 重新验证滑块中...')
         captcha_token_info = await get_new_token(img_info, xid, Init['captcha_token'])
         verification_id = await verification(captcha_token_info['captcha_token'], xid, mail)
         code = await get_code(mail)
@@ -628,13 +663,13 @@ async def main():
         end_time = time.time()
         run_time = f"{(end_time - start_time):.2f}"
         if activation['add_days'] == 5:
-            print(f'邀请码: {incode} ==> 邀请成功, 用时: {run_time} 秒')
+            await send_log_to_web(f'邀请码: {incode} ==> 邀请成功, 用时: {run_time} 秒')
         else:
-            print(f'邀请码: {incode} ==> 邀请失败, 用时: {run_time} 秒')
+            await send_log_to_web(f'邀请码: {incode} ==> 邀请失败, 用时: {run_time} 秒')
         exit()
     except Exception as e:
-        print(f'异常捕获:{e}')
-        print('代理无效，重试中...')
+        await send_log_to_web(f'异常捕获:{e}')
+        await send_log_to_web('代理无效，重试中...')
         await main()
 
 
