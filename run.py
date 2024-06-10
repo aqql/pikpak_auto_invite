@@ -48,7 +48,7 @@ async def send_log_to_web(log_message):
     async with websockets.connect(uri) as websocket:
         await websocket.send(log_message)
  # 代理，如果多次出现IP问题可尝试将自己所用的魔法设置为代理。例如：使用clash则设置为 'http://127.0.0.1:7890'
-def get_proxy():
+async def get_proxy():
     global PROXY
     PROXY = os.getenv('PROXY')
     if PROXY is None:
