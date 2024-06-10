@@ -31,5 +31,5 @@ jobs:
         context: .
         push: true
         tags: saika2077/pikpak_auto_invite:2
-        platforms: linux/amd64,linux/arm64,linux/arm/v7
+        platforms: linux/amd64,linux/arm64
 
